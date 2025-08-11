@@ -1,5 +1,9 @@
 name: EW to Discord
 
+permissions:
+  contents: write
+  actions: read
+
 on:
   schedule:
     - cron: "0 15 * * SUN"   # Sundays 18:00 Asia/Jerusalem (UTC+3)
@@ -14,38 +18,47 @@ on:
         type: boolean
         default: true
 
-permissions:
-  contents: write
-
 concurrency:
   group: ew-to-discord
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 jobs:
   run:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
+      - uses: actions/checkout@v4
 
-      - name: Setup Python
-        uses: actions/setup-python@v5
+      - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
 
-      - name: Install deps
-        run: pip install requests
+      - run: pip install -U requests python-dotenv
 
-      # Build CLI args from inputs
+      # Debounce cron: if we just posted in the last 10 minutes, skip
+      - name: Debounce recent post (cron only)
+        if: github.event_name == 'schedule'
+        shell: bash
+        run: |
+          if [[ -f last_post.ts ]]; then
+            last=$(cat last_post.ts || echo 0)
+            now=$(date +%s)
+            if (( now - last < 600 )); then
+              echo "Recent post ${last}, skipping cron."
+              exit 0
+            fi
+          fi
+
+      # Build CLI args
       - name: Build args
         id: build
         shell: bash
         run: |
           args=""
-          if [[ "${{ inputs.force }}" == "true" ]]; then args="$args --force-latest"; fi
-          if [[ "${{ inputs.photo }}" == "true" ]]; then args="$args --photo"; fi
+          # For workflow_dispatch, respect inputs; for cron, default force=false photo=true
+          force="${{ github.event_name == 'workflow_dispatch' && inputs.force || 'false' }}"
+          photo="${{ github.event_name == 'workflow_dispatch' && inputs.photo || 'true' }}"
+          [[ "$force" == "true" || "$force" == "1" ]] && args="$args --force-latest"
+          [[ "$photo" == "true" || "$photo" == "1" ]] && args="$args --photo"
           echo "args=$args" >> "$GITHUB_OUTPUT"
 
       - name: Run EW poster
