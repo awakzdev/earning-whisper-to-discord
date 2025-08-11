@@ -4,5 +4,5 @@ compatibility_date = "2025-01-01"
 
 [vars]
 GH_REPO = "awakzdev/earning-whisper-to-discord"
-GH_WORKFLOW = "ew-to-discord.yml"
+GH_WORKFLOW = "ew-to-discord.yml"   # or the numeric ID if you prefer
 GH_REF = "main"

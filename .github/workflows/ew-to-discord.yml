@@ -5,10 +5,14 @@ on:
     - cron: "0 15 * * SUN"   # Sundays 18:00 Asia/Jerusalem (UTC+3)
   workflow_dispatch:
     inputs:
-      reason:
-        description: "Why are we running this?"
-        required: false
-        default: "manual"
+      force:
+        description: "Force latest (ignore last_id)"
+        type: boolean
+        default: false
+      photo:
+        description: "Attach image"
+        type: boolean
+        default: true
 
 permissions:
   contents: write
@@ -34,14 +38,23 @@ jobs:
       - name: Install deps
         run: pip install requests
 
-      - name: Run poster (photo + robust find)
+      # Build CLI args from inputs
+      - name: Build args
+        id: build
+        shell: bash
+        run: |
+          args=""
+          if [[ "${{ inputs.force }}" == "true" ]]; then args="$args --force-latest"; fi
+          if [[ "${{ inputs.photo }}" == "true" ]]; then args="$args --photo"; fi
+          echo "args=$args" >> "$GITHUB_OUTPUT"
+
+      - name: Run EW poster
         env:
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
-          STATE_FILE: last_id.json
-          X_USER: eWhispers
         run: |
-          python ew_to_discord.py --photo --force-latest --debug || true
-
+          echo "Args: ${{ steps.build.outputs.args }}"
+          python ew_to_discord.py --debug ${{ steps.build.outputs.args }}
+          
       - name: Commit state if it changed
         shell: bash
         run: |
