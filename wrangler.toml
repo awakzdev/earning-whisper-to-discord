@@ -1,0 +1,8 @@
+name = "ew-dispatcher"
+main = "worker.js"
+compatibility_date = "2025-01-01"
+
+[vars]
+GH_REPO = "awakzdev/earning-whisper-to-discord"
+GH_WORKFLOW = "ew-to-discord.yml"
+GH_REF = "main"

@@ -4,10 +4,11 @@ on:
   schedule:
     - cron: "0 15 * * SUN"   # Sundays 18:00 Asia/Jerusalem (UTC+3)
   workflow_dispatch:
-  push:
-    paths:
-      - "ew_to_discord.py"
-      - ".github/workflows/ew-to-discord.yml"
+    inputs:
+      reason:
+        description: "Why are we running this?"
+        required: false
+        default: "manual"
 
 permissions:
   contents: write
