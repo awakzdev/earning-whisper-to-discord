@@ -1,0 +1,61 @@
+name: EW to Discord
+
+on:
+  schedule:
+    - cron: "0 15 * * SUN"   # Sundays 18:00 Asia/Jerusalem (UTC+3)
+  workflow_dispatch:
+  push:
+    paths:
+      - "ew_to_discord.py"
+      - ".github/workflows/ew-to-discord.yml"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: ew-to-discord
+  cancel-in-progress: false
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install deps
+        run: pip install requests
+
+      - name: Run poster (photo + robust find)
+        env:
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          STATE_FILE: last_id.json
+          X_USER: eWhispers
+        run: |
+          python ew_to_discord.py --photo --force-latest --debug || true
+
+      - name: Commit state if it changed
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          if [[ -f "last_id.json" ]]; then
+            if ! git diff --quiet -- last_id.json; then
+              git config user.name "github-actions[bot]"
+              git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+              git add last_id.json
+              git commit -m "chore(ci): update last_id.json [skip ci]"
+              git push
+            else
+              echo "No changes to last_id.json"
+            fi
+          else
+            echo "No last_id.json produced; nothing to commit."
+          fi
