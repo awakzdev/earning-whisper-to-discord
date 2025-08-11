@@ -16,7 +16,8 @@ async function verifyDiscord(req, publicKeyHex) {
   }
 }
 
-async function triggerWorkflow(env, reason) {
+// was: async function triggerWorkflow(env, reason) {
+async function triggerWorkflow(env, reason, inputs = {}) {
   const url = `https://api.github.com/repos/${env.GH_REPO}/actions/workflows/${env.GH_WORKFLOW}/dispatches`;
   const res = await fetch(url, {
     method: "POST",
@@ -26,20 +27,31 @@ async function triggerWorkflow(env, reason) {
       "X-GitHub-Api-Version": "2022-11-28",
       "User-Agent": "EarningWhisperBot (+https://github.com/awakzdev/earning-whisper-to-discord)"
     },
-    body: JSON.stringify({ ref: env.GH_REF || "main" })
+    body: JSON.stringify({
+      ref: env.GH_REF || "main",
+      // GH requires *strings* for workflow_dispatch inputs
+      inputs: Object.fromEntries(Object.entries(inputs).map(([k,v]) => [k, String(v)])),
+    }),
   });
   const text = await res.text();
   if (!res.ok) return `Trigger failed: ${res.status} ${text?.slice(0,300)}`;
-  return `Triggered ✅ (${reason || "manual"})`;
+  return `Nothing will be posted if there's no new image to fetch.\nTriggered ✅ (${reason || "manual"})`;
 }
+
 
 export default {
   async fetch(req, env) {
     const url = new URL(req.url);
 
     if (req.method === "GET" && url.pathname === "/check") {
-      if (!env.SECRET_KEY || url.searchParams.get("key") !== env.SECRET_KEY) return new Response("forbidden", { status: 403 });
-      return new Response(await triggerWorkflow(env, "link"), { status: 200 });
+      if (!env.SECRET_KEY || url.searchParams.get("key") !== env.SECRET_KEY)
+        return new Response("forbidden", { status: 403 });
+
+      const inputs = {
+        force: url.searchParams.get("force") === "1" ? "true" : "false",
+        photo: url.searchParams.get("photo") === "0" ? "false" : "true",
+      };
+      return new Response(await triggerWorkflow(env, "link", inputs), { status: 200 });
     }
 
     if (req.method !== "POST" || url.pathname !== "/interactions") return new Response("ok", { status: 200 });
@@ -54,15 +66,19 @@ export default {
       return new Response(JSON.stringify({ type: 1 }), { headers: { "Content-Type": "application/json" }});
     }
 
-    // Slash command
+        // Slash command
     if (data.type === 2) {
       const name = (data.data?.name || "").toLowerCase();
-      if (name === "check" || name === "trigger") {
-        const msg = await triggerWorkflow(env, name);
-        return new Response(JSON.stringify({ type: 4, data: { flags: 64, content: msg }}), {
-          headers: { "Content-Type": "application/json" }
-        });
-      }
+
+      // manual commands: /trigger forces; /check does not
+      const inputs = name === "trigger"
+        ? { force: "true",  photo: "true" }
+        : { force: "false", photo: "true" };
+
+      const msg = await triggerWorkflow(env, name, inputs); // <-- pass inputs
+      return new Response(JSON.stringify({ type: 4, data: { flags: 64, content: msg }}), {
+        headers: { "Content-Type": "application/json" }
+      });
     }
 
     return new Response("unsupported", { status: 400 });
