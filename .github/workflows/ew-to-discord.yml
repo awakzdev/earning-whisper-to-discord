@@ -14,13 +14,17 @@ on:
         type: boolean
         default: false
       photo:
-        description: "Attach image"
+        description: "Attach image(s)"
         type: boolean
         default: true
       notify_noop:
         description: "Post a 'no updates' log message if nothing new"
         type: boolean
         default: true
+      phrase_only:
+        description: "Require phrase match (ignores newest if phrase not present)"
+        type: boolean
+        default: false
 
 concurrency:
   group: ew-to-discord
@@ -58,13 +62,15 @@ jobs:
         shell: bash
         run: |
           args=""
-          # For workflow_dispatch, respect inputs; for cron, default force=false photo=true notify_noop=true
+          # For workflow_dispatch, respect inputs; for cron, defaults:
           force="${{ github.event_name == 'workflow_dispatch' && inputs.force || 'false' }}"
           photo="${{ github.event_name == 'workflow_dispatch' && inputs.photo || 'true' }}"
           notify_noop="${{ github.event_name == 'workflow_dispatch' && inputs.notify_noop || 'true' }}"
+          phrase_only="${{ github.event_name == 'workflow_dispatch' && inputs.phrase_only || 'false' }}"
           [[ "$force" == "true" || "$force" == "1" ]] && args="$args --force-latest"
           [[ "$photo" == "true" || "$photo" == "1" ]] && args="$args --photo"
           [[ "$notify_noop" == "true" || "$notify_noop" == "1" ]] && args="$args --notify-noop"
+          [[ "$phrase_only" == "true" || "$phrase_only" == "1" ]] && args="$args --phrase-only"
           echo "args=$args" >> "$GITHUB_OUTPUT"
 
       - name: Run EW poster
@@ -83,11 +89,11 @@ jobs:
             if ! git diff --quiet -- last_id.json; then
               git config user.name "github-actions[bot]"
               git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-              git add last_id.json
-              git commit -m "chore(ci): update last_id.json [skip ci]"
+              git add last_id.json last_post.ts || true
+              git commit -m "chore(ci): update bot state [skip ci]"
               git push
             else
-              echo "No changes to last_id.json"
+              echo "No changes to bot state files"
             fi
           else
             echo "No last_id.json produced; nothing to commit."
