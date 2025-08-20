@@ -5,9 +5,9 @@ USER    = os.getenv("X_USER", "eWhispers")
 PHRASE  = r"most\s+anticipated\s+earnings"
 
 # accept x/twitter/nitter; allow http or https; accept /photo/1 tail
-LINK_DOMAINS = r"(?:x\\.com|twitter\\.com|mobile\\.twitter\\.com|nitter\\.[\\w.-]+)"
-STRICT_STATUS = rf"https?://{LINK_DOMAINS}/{USER}/status/\\d+(?:/photo/\\d+)?"
-BROAD_STATUS  = r"https?://[^)\s]+/status/\d+(?:/photo/\d+)?"
+LINK_DOMAINS = r"(?:x\.com|twitter\.com|mobile\.twitter\.com|nitter\.[\w.-]+)"
+STRICT_STATUS = rf"https?://{LINK_DOMAINS}/{USER}/status/\d+(?:/photo/\d+)?"
+BROAD_STATUS  = r"https?://[^\)\s]+/status/\d+(?:/photo/\d+)?"
 
 def setup_log(debug: bool):
     logging.basicConfig(level=(logging.DEBUG if debug else logging.INFO),
@@ -31,8 +31,14 @@ def save_last(sid: int):
         json.dump({"last_id": int(sid)}, f)
     logging.info("Saved last_id=%s -> %s", sid, STATE)
 
+def _touch_last_post_ts():
+    try:
+        with open("last_post.ts", "w", encoding="utf-8") as f:
+            f.write(str(int(time.time())))
+    except Exception as e:
+        logging.debug("Could not write last_post.ts: %s", e)
+
 def _normalize_to_x(url: str) -> str:
-    # force host to x.com, strip /photo/<n> and querystrings
     u = re.sub(r"^https?://[^/]+", "https://x.com", url.strip())
     u = re.sub(r"/photo/\d+.*$", "", u)
     u = re.sub(r"\?.*$", "", u)
@@ -44,14 +50,11 @@ def _status_id(url: str) -> int | None:
 
 def _all_status_urls(text: str):
     urls = []
-    # 1) strict (only eWhispers)
     for m in re.finditer(STRICT_STATUS, text):
         urls.append(_normalize_to_x(m.group(0)))
-    # 2) broad (any status link on the page), useful if mirrors reformat
     if not urls:
         for m in re.finditer(BROAD_STATUS, text):
             urls.append(_normalize_to_x(m.group(0)))
-    # drop dups keep order
     seen=set(); out=[]
     for u in urls:
         if u not in seen:
@@ -112,7 +115,6 @@ def _media_from_proxy(status_id: int):
                 logging.debug("API status=%s body=%s", rr.status_code, rr.text[:200])
                 continue
             data = rr.json()
-            # collect any image URLs
             candidates = []
             def collect(obj):
                 if isinstance(obj, dict):
@@ -175,6 +177,7 @@ def main():
     ap.add_argument("--force-latest", action="store_true", help="Post the newest tweet even if phrase not found.")
     ap.add_argument("--force-url", type=str, help="Post this exact tweet URL.")
     ap.add_argument("--photo", action="store_true", help="Try to send the collage image instead of just the URL.")
+    ap.add_argument("--notify-noop", action="store_true", help="Send a Discord message if nothing new was posted.")
     ap.add_argument("--debug", action="store_true", help="Verbose logging.")
     args = ap.parse_args()
 
@@ -184,6 +187,7 @@ def main():
 
     if args.test:
         post_discord_text(f"Test ✅ {time.strftime('%Y-%m-%dT%H:%M:%S')}")
+        _touch_last_post_ts()
         return
 
     if args.force_url and "1234567890123456789" in args.force_url:
@@ -199,28 +203,44 @@ def main():
         url = phrase_url or (latest_url if args.force_latest else None)
 
     if not url:
-        logging.info("Nothing to post (no URL resolved). Exiting 0."); return
+        msg = "EW bot: No eligible @eWhispers tweet found (phrase not seen and --force-latest not set)."
+        logging.info("Nothing to post (no URL resolved).")
+        if args.notify_noop:
+            post_discord_text(msg)
+            _touch_last_post_ts()
+        return
 
     sid = _status_id(url)
     logging.info("Chosen URL: %s | parsed status_id=%s", url, sid)
     if not sid:
-        logging.info("Could not parse status id: %s", url); return
+        logging.info("Could not parse status id: %s", url)
+        if args.notify_noop:
+            post_discord_text(f"EW bot: Skipped (couldn't parse status id) -> {url}")
+            _touch_last_post_ts()
+        return
 
     last_id = load_last()
     logging.info("last_id=%s", last_id)
     if not args.force and sid <= last_id:
-        logging.info("Already posted this one. Use --force to resend. Exiting 0."); return
+        logging.info("Already posted this one. Use --force to resend. Exiting 0.")
+        if args.notify_noop:
+            post_discord_text(f"EW bot: No new updates (latest already posted). id={sid} url={url}")
+            _touch_last_post_ts()
+        return
 
     if args.photo:
         media = _media_from_proxy(sid)
         if media:
             post_discord_photo("New Earnings Whispers collage:", media)
-            save_last(sid); return
+            save_last(sid)
+            _touch_last_post_ts()
+            return
         else:
             logging.info("No media found; sending link instead.")
 
     post_discord_text(f"New Earnings Whispers collage:\n{url}")
     save_last(sid)
+    _touch_last_post_ts()
 
 if __name__ == "__main__":
     import argparse, mimetypes

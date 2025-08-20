@@ -17,6 +17,10 @@ on:
         description: "Attach image"
         type: boolean
         default: true
+      notify_noop:
+        description: "Post a 'no updates' log message if nothing new"
+        type: boolean
+        default: true
 
 concurrency:
   group: ew-to-discord
@@ -54,11 +58,13 @@ jobs:
         shell: bash
         run: |
           args=""
-          # For workflow_dispatch, respect inputs; for cron, default force=false photo=true
+          # For workflow_dispatch, respect inputs; for cron, default force=false photo=true notify_noop=true
           force="${{ github.event_name == 'workflow_dispatch' && inputs.force || 'false' }}"
           photo="${{ github.event_name == 'workflow_dispatch' && inputs.photo || 'true' }}"
+          notify_noop="${{ github.event_name == 'workflow_dispatch' && inputs.notify_noop || 'true' }}"
           [[ "$force" == "true" || "$force" == "1" ]] && args="$args --force-latest"
           [[ "$photo" == "true" || "$photo" == "1" ]] && args="$args --photo"
+          [[ "$notify_noop" == "true" || "$notify_noop" == "1" ]] && args="$args --notify-noop"
           echo "args=$args" >> "$GITHUB_OUTPUT"
 
       - name: Run EW poster
@@ -67,7 +73,7 @@ jobs:
         run: |
           echo "Args: ${{ steps.build.outputs.args }}"
           python ew_to_discord.py --debug ${{ steps.build.outputs.args }}
-          
+
       - name: Commit state if it changed
         shell: bash
         run: |
